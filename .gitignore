@@ -167,3 +167,6 @@ kivy-deps-build/
 .buildozer/
 bin/
 
+# IDEA
+.idea
+
