@@ -33,6 +33,11 @@ Coords = Tuple[int, int]
 # one is supposed to deepcopy the sudoku instead of remembering and resetting the values mutated during the exploration
 class Sudoku:
 
+    class Cell:
+        
+        def __init__(self, sudoku):
+            self.sudoku = sudoku
+
     def __init__(self):
         self.grid = array('i', [0] * 81)
         self.lines = ArrayBitset()
@@ -129,6 +134,13 @@ class PossibleDigits:
             count += 1
         return count
     
+    # return the first digit matching
+    def get_single_digit(self):
+        for d in range(1, 10):
+            if self.contains(d):
+                return d
+        raise RuntimeError('Cannot get single digit from empty')
+    
     def get_digits(self) -> List[int]:
         digits = []
         for d in range(1, 10):
@@ -203,7 +215,7 @@ class Solver:
                             return None
                         elif possible_digits.len == 1:
                             resolved_cell = True
-                            sudoku.update_value((x, y), possible_digits.get_digits()[0])
+                            sudoku.update_value((x, y), possible_digits.get_single_digit())
                         else:
                             unresolved_cells.append(Cell((x, y), possible_digits))
 
