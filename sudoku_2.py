@@ -5,35 +5,21 @@ from array import array
 from typing import Tuple, List, Optional, Type
 
 
-# A performant class to represent a set of digits with 9 possible values
+# A performant class to represent 9 sets of digits with 9 possible values for digits
 # It is used to represent all values used in a given list, row or block
-# as well as possible solutions for a given cell during sudoku solving process
-class Bitset:
+class ArrayBitset:
 
-    def __init__(self, initial_value=0):
-        self.bitset = initial_value
+    def __init__(self):
+        self.bitsets = array('i', [0] * 9)
 
-    def add(self, d: int) -> None:
-        self.bitset |= 1 << (d - 1)
+    def get(self, idx: int):
+        return self.bitsets[idx]
 
-    # returns the number of digits in the set
-    def __len__(self):
-        count = 0
-        b = self.bitset
-        while b:
-            b &= b - 1  # Clear the least significant set bit
-            count += 1
-        return count
+    def add(self, idx: int, d: int) -> None:
+        self.bitsets[idx] |= 1 << (d - 1)
 
-    def get_digits(self) -> List[int]:
-        digits = []
-        for d in range(1, 10):
-            if self.contains(d):
-                digits.append(d)
-        return digits
-
-    def contains(self, d: int) -> bool:
-        return bool(self.bitset & (1 << (d - 1)))
+    def contains(self, idx: int, d: int) -> bool:
+        return bool(self.bitsets[idx] & (1 << (d - 1)))
 
 
 Coords = Tuple[int, int]
@@ -49,22 +35,42 @@ class Sudoku:
 
     def __init__(self):
         self.grid = array('i', [0] * 81)
-        self.lines = [Bitset() for _ in range(9)]
-        self.rows = [Bitset() for _ in range(9)]
-        self.blocks = [Bitset() for _ in range(9)]
+        self.lines = ArrayBitset()
+        self.rows = ArrayBitset()
+        self.blocks = ArrayBitset()
 
     def get_grid_idx(self, coords: Coords):
         return coords[0] * 9 + coords[1]
 
-    def get_line(self, coords: Coords):
-        return self.lines[coords[0]]
+    def get_line_bitset(self, coords: Coords):
+        return self.lines.get(coords[0])
 
-    def get_row(self, coords: Coords):
-        return self.rows[coords[1]]
+    def line_contains(self, coords: Coords, digit: int):
+        return self.lines.contains(coords[0], digit)
 
-    def get_block(self, coords: Coords):
-        block_id = int(coords[0] / 3) * 3 + int(coords[1] / 3)
-        return self.blocks[block_id]
+    def line_add(self, coords: Coords, digit: int):
+        self.lines.add(coords[0], digit)
+
+    def get_row_bitset(self, coords: Coords):
+        return self.rows.get(coords[1])
+
+    def row_contains(self, coords: Coords, digit: int):
+        return self.rows.contains(coords[1], digit)
+
+    def row_add(self, coords: Coords, digit: int):
+        self.rows.add(coords[1], digit)
+
+    def get_block_id(self, coords: Coords):
+        return int(coords[0] / 3) * 3 + int(coords[1] / 3)
+
+    def get_block_bitset(self, coords: Coords):
+        return self.blocks.get(self.get_block_id(coords))
+
+    def block_contains(self, coords: Coords, digit: int):
+        return self.blocks.contains(self.get_block_id(coords), digit)
+
+    def block_add(self, coords: Coords, digit: int):
+        self.blocks.add(self.get_block_id(coords), digit)
 
     def get_digit(self, coords: Coords):
         return self.grid[self.get_grid_idx(coords)]
@@ -75,9 +81,9 @@ class Sudoku:
         self.update_bitsets(coords, digit)
 
     def update_bitsets(self, coords: Coords, digit: int):
-        self.get_line(coords).add(digit)
-        self.get_row(coords).add(digit)
-        self.get_block(coords).add(digit)
+        self.line_add(coords, digit)
+        self.row_add(coords, digit)
+        self.block_add(coords, digit)
 
     # Load a soduko from a List[List[Int]]
     def load(self, lines):
@@ -107,9 +113,36 @@ class Sudoku:
         return s
 
 
+# A class used to represent possible digits for a cell as a single int
+# Each bit set correspond to a possible solution
+class PossibleDigits:
+
+    def __init__(self, initial_value=0):
+        self.bitset = initial_value
+
+    # returns the number of digits in the set
+    def __len__(self):
+        count = 0
+        b = self.bitset
+        while b:
+            b &= b - 1  # Clear the least significant set bit
+            count += 1
+        return count
+
+    def get_digits(self) -> List[int]:
+        digits = []
+        for d in range(1, 10):
+            if self.contains(d):
+                digits.append(d)
+        return digits
+
+    def contains(self, d: int) -> bool:
+        return bool(self.bitset & (1 << (d - 1)))
+    
+
 class Cell:
 
-    def __init__(self, coords: Coords, possible_digits: Bitset):
+    def __init__(self, coords: Coords, possible_digits: PossibleDigits):
         self.coords = coords
         self.possible_digits = possible_digits
 
@@ -158,12 +191,12 @@ class Solver:
                     digit = sudoku.get_digit((x, y))
                     if digit == 0:  # We don't resolve cells having already a value
                         # Compute possible values thanks to line, rows and block bitsets
-                        combined_used_values = sudoku.get_line((x, y)).bitset | \
-                                               sudoku.get_row((x, y)).bitset | \
-                                               sudoku.get_block((x, y)).bitset
+                        combined_used_values = sudoku.get_line_bitset((x, y)) | \
+                                               sudoku.get_row_bitset((x, y)) | \
+                                               sudoku.get_block_bitset((x, y))
                         # The zeros are the values we are allowed to use, turn them to ones
                         possible_digits = ~combined_used_values & 0b111111111  # Invert and mask to 9 bits
-                        resolvable_cells.append(Cell((x, y), Bitset(possible_digits)))
+                        resolvable_cells.append(Cell((x, y), PossibleDigits(possible_digits)))
 
             unresolved_cells = []
             for cell in resolvable_cells:
@@ -174,9 +207,9 @@ class Solver:
                 elif len(cell.possible_digits) == 1:
                     # Might have been inserted already in this loop, check that
                     digit = cell.possible_digits.get_digits()[0]
-                    already_in_line = sudoku.get_line(cell.coords).contains(digit)
-                    already_in_row = sudoku.get_row(cell.coords).contains(digit)
-                    already_in_block = sudoku.get_block(cell.coords).contains(digit)
+                    already_in_line = sudoku.line_contains(cell.coords, digit)
+                    already_in_row = sudoku.row_contains(cell.coords, digit)
+                    already_in_block = sudoku.block_contains(cell.coords, digit)
                     if not already_in_line and not already_in_row and not already_in_block:
                         sudoku.update_value(cell.coords, digit)
                     else:
@@ -272,16 +305,16 @@ def verify_sudoku_correctness(solution: Sudoku):
 
 
 def run_and_verify_with_traversal(problem, traversal_kind):
-    start_time = time.time()
     sudoku = Sudoku()
     sudoku.load(problem)
     solver = Solver()
+    start_time = time.time()
     solved_sudoku = solver.solve(sudoku, traversal_kind=traversal_kind)
+    end_time = time.time()
     print(solved_sudoku)
     verify_solution_matches_problem(problem, solved_sudoku)
     verify_sudoku_correctness(solved_sudoku)
     print()
-    end_time = time.time()
     duration = end_time - start_time
     print(f"Tests duration using {traversal_kind}: {duration} seconds")
     print()
