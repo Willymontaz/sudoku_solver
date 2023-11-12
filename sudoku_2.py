@@ -119,16 +119,16 @@ class PossibleDigits:
 
     def __init__(self, initial_value=0):
         self.bitset = initial_value
+        self.len = self.count()
 
-    # returns the number of digits in the set
-    def __len__(self):
+    def count(self):
         count = 0
         b = self.bitset
         while b:
             b &= b - 1  # Clear the least significant set bit
             count += 1
         return count
-
+    
     def get_digits(self) -> List[int]:
         digits = []
         for d in range(1, 10):
@@ -196,16 +196,17 @@ class Solver:
                                                sudoku.get_block_bitset((x, y))
                         # The zeros are the values we are allowed to use, turn them to ones
                         possible_digits = PossibleDigits(
-                            ~combined_used_values & 0b111111111)  # Invert and mask to 9 bits
+                            ~combined_used_values & 0b111111111  # Invert and mask to 9 bits
+                        )
                         # If a cell has no option, this sudoku is not solvable
-                        if len(possible_digits) == 0:
+                        if possible_digits.len == 0:
                             return None
-                        elif len(possible_digits) == 1:
+                        elif possible_digits.len == 1:
                             resolved_cell = True
                             sudoku.update_value((x, y), possible_digits.get_digits()[0])
                         else:
                             unresolved_cells.append(Cell((x, y), possible_digits))
-                            
+
             if not resolved_cell:
                 break
 
@@ -253,7 +254,7 @@ class Solver:
     def update_exploration_traversal(unresolved_cells, exploration_traversal: ExplorationTraversal,
                                      sudoku_before_exploration):
         # We explore by choosing the cell presenting the least possible branches
-        candidate_cell = min(unresolved_cells, key=lambda cell: len(cell.possible_digits))
+        candidate_cell = min(unresolved_cells, key=lambda cell: cell.possible_digits.len)
         for digit in candidate_cell.possible_digits.get_digits():
             # We keep track of the sudoku state at this step of the exploration
             exploration_traversal.add((candidate_cell.coords, digit, copy.deepcopy(sudoku_before_exploration)))
