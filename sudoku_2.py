@@ -138,7 +138,7 @@ class PossibleDigits:
 
     def contains(self, d: int) -> bool:
         return bool(self.bitset & (1 << (d - 1)))
-    
+
 
 class Cell:
 
@@ -183,9 +183,9 @@ class Solver:
     # Warning: the sudoku is mutated by this method and is supposed to be reused for further work
     @staticmethod
     def resolve_constrained_cells(sudoku: Sudoku) -> Optional[List[Cell]]:
-        previous_unresolved_count = 81  # We consider all cells unresolved at first
         while True:
-            resolvable_cells = []
+            unresolved_cells = []
+            resolved_cell = False
             for x in range(9):
                 for y in range(9):
                     digit = sudoku.get_digit((x, y))
@@ -195,43 +195,26 @@ class Solver:
                                                sudoku.get_row_bitset((x, y)) | \
                                                sudoku.get_block_bitset((x, y))
                         # The zeros are the values we are allowed to use, turn them to ones
-                        possible_digits = ~combined_used_values & 0b111111111  # Invert and mask to 9 bits
-                        resolvable_cells.append(Cell((x, y), PossibleDigits(possible_digits)))
-
-            unresolved_cells = []
-            for cell in resolvable_cells:
-                # If a cell has no option, this sudoku is not solvable
-                if len(cell.possible_digits) == 0:
-                    return None
-                # If it has a single option, that's nice we make progress
-                elif len(cell.possible_digits) == 1:
-                    # Might have been inserted already in this loop, check that
-                    digit = cell.possible_digits.get_digits()[0]
-                    already_in_line = sudoku.line_contains(cell.coords, digit)
-                    already_in_row = sudoku.row_contains(cell.coords, digit)
-                    already_in_block = sudoku.block_contains(cell.coords, digit)
-                    if not already_in_line and not already_in_row and not already_in_block:
-                        sudoku.update_value(cell.coords, digit)
-                    else:
-                        # Oops, that was a situation where constraints led to put the same
-                        # digit twice either in line, row or block
-                        # This sudoku is unsolvable
-                        return None
-                else:
-                    unresolved_cells.append(cell)
+                        possible_digits = PossibleDigits(
+                            ~combined_used_values & 0b111111111)  # Invert and mask to 9 bits
+                        # If a cell has no option, this sudoku is not solvable
+                        if len(possible_digits) == 0:
+                            return None
+                        elif len(possible_digits) == 1:
+                            resolved_cell = True
+                            sudoku.update_value((x, y), possible_digits.get_digits()[0])
+                        else:
+                            unresolved_cells.append(Cell((x, y), possible_digits))
+                            
+            if not resolved_cell:
+                break
 
             # Verify some possible loop exits
-            if len(unresolved_cells) == 0:
-                # The sudoku is resolved, return an empty list
-                return unresolved_cells
-            elif len(unresolved_cells) == previous_unresolved_count:
-                # There are remaining unresolved cells, and we made no progress with this loop
-                # Return the unresolved cells for exploratory work
-                return unresolved_cells
-            else:
-                # Maybe thanks to the resolved cells we can now resolve other cells
-                # Keep track of the previous count and check later if we make progress
-                previous_unresolved_count = len(unresolved_cells)
+        if len(unresolved_cells) == 0:
+            # The sudoku is resolved, return an empty list
+            return unresolved_cells
+        else:
+            return unresolved_cells
 
     # Solves a sudoku, possibly through exploration
     # Returns the sudoku solution (the provided sudoku is mutated but the
