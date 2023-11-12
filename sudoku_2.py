@@ -32,9 +32,8 @@ Coords = Tuple[int, int]
 # For the purpose of the algorithm, the state can be mutated. However, when exploring branches of solutions
 # one is supposed to deepcopy the sudoku instead of remembering and resetting the values mutated during the exploration
 class Sudoku:
-
     class Cell:
-        
+
         def __init__(self, sudoku):
             self.sudoku = sudoku
 
@@ -47,48 +46,40 @@ class Sudoku:
     def get_grid_idx(self, coords: Coords):
         return coords[0] * 9 + coords[1]
 
-    def get_line_bitset(self, coords: Coords):
-        return self.lines.get(coords[0])
+    def get_line_idx(self, idx: int):
+        return int(idx / 9)
 
-    def line_contains(self, coords: Coords, digit: int):
-        return self.lines.contains(coords[0], digit)
+    def get_row_idx(self, idx: int):
+        return idx % 9
 
-    def line_add(self, coords: Coords, digit: int):
-        self.lines.add(coords[0], digit)
-
-    def get_row_bitset(self, coords: Coords):
-        return self.rows.get(coords[1])
-
-    def row_contains(self, coords: Coords, digit: int):
-        return self.rows.contains(coords[1], digit)
-
-    def row_add(self, coords: Coords, digit: int):
-        self.rows.add(coords[1], digit)
-
-    def get_block_id(self, coords: Coords):
-        return int(coords[0] / 3) * 3 + int(coords[1] / 3)
-
-    def get_block_bitset(self, coords: Coords):
-        return self.blocks.get(self.get_block_id(coords))
-
-    def block_contains(self, coords: Coords, digit: int):
-        return self.blocks.contains(self.get_block_id(coords), digit)
-
-    def block_add(self, coords: Coords, digit: int):
-        self.blocks.add(self.get_block_id(coords), digit)
+    def get_block_id(self, idx: int):
+        return int(idx / 27) * 3 + int((idx % 9) / 3)
 
     def get_digit(self, coords: Coords):
         return self.grid[self.get_grid_idx(coords)]
 
-    def update_value(self, coords: Coords, digit: int):
+    def update_value(self, idx: int, digit: int):
         assert digit != 0
-        self.grid[self.get_grid_idx(coords)] = digit
-        self.update_bitsets(coords, digit)
+        self.grid[idx] = digit
+        self.update_bitsets(idx, digit)
 
-    def update_bitsets(self, coords: Coords, digit: int):
-        self.line_add(coords, digit)
-        self.row_add(coords, digit)
-        self.block_add(coords, digit)
+    def update_bitsets(self, idx: int, digit: int):
+        self.lines.add(self.get_line_idx(idx), digit)
+        self.rows.add(self.get_row_idx(idx), digit)
+        self.blocks.add(self.get_block_id(idx), digit)
+
+    def resolvablecells(self):
+        for idx, digit in enumerate(self.grid):
+            if digit == 0:  # Only consider digits not having already a value
+                # Compute possible values thanks to line, rows and block bitsets
+                combined_used_values = self.lines.get(self.get_line_idx(idx)) | \
+                                       self.rows.get(self.get_row_idx(idx)) | \
+                                       self.blocks.get(self.get_block_id(idx))
+                # The zeros are the values we are allowed to use, turn them to ones
+                possible_digits = PossibleDigits(
+                    ~combined_used_values & 0b111111111  # Invert and mask to 9 bits
+                )
+                yield Cell(idx, possible_digits)
 
     # Load a soduko from a List[List[Int]]
     def load(self, lines):
@@ -100,7 +91,7 @@ class Sudoku:
                 digit = line[j]
                 self.grid[self.get_grid_idx((i, j))] = digit
                 if digit != 0:
-                    self.update_bitsets((i, j), digit)
+                    self.update_bitsets(self.get_grid_idx((i, j)), digit)
 
     # Useful to print out a sudoku in terminal
     def __str__(self):
@@ -133,14 +124,14 @@ class PossibleDigits:
             b &= b - 1  # Clear the least significant set bit
             count += 1
         return count
-    
+
     # return the first digit matching
     def get_single_digit(self):
         for d in range(1, 10):
             if self.contains(d):
                 return d
         raise RuntimeError('Cannot get single digit from empty')
-    
+
     def get_digits(self) -> List[int]:
         digits = []
         for d in range(1, 10):
@@ -154,8 +145,8 @@ class PossibleDigits:
 
 class Cell:
 
-    def __init__(self, coords: Coords, possible_digits: PossibleDigits):
-        self.coords = coords
+    def __init__(self, idx: int, possible_digits: PossibleDigits):
+        self.idx = idx
         self.possible_digits = possible_digits
 
 
@@ -175,17 +166,17 @@ class Solver:
             self.exploration_tuples.append(exploration_tuple)
 
         @abstractmethod
-        def next(self) -> Tuple[Coords, int, Sudoku]:
+        def next(self) -> Tuple[int, int, Sudoku]:
             pass
 
     # Depth-First-Search traversal kind
     class DFS(ExplorationTraversal):
-        def next(self) -> Tuple[Coords, int, Sudoku]:
+        def next(self) -> Tuple[int, int, Sudoku]:
             return self.exploration_tuples.pop()
 
     # Breadth-First-Search traversal kind
     class BFS(ExplorationTraversal):
-        def next(self) -> Tuple[Coords, int, Sudoku]:
+        def next(self) -> Tuple[int, int, Sudoku]:
             return self.exploration_tuples.pop(0)
 
     # Resolves cells that can be resolved by pure constraint
@@ -198,26 +189,15 @@ class Solver:
         while True:
             unresolved_cells = []
             resolved_cell = False
-            for x in range(9):
-                for y in range(9):
-                    digit = sudoku.get_digit((x, y))
-                    if digit == 0:  # We don't resolve cells having already a value
-                        # Compute possible values thanks to line, rows and block bitsets
-                        combined_used_values = sudoku.get_line_bitset((x, y)) | \
-                                               sudoku.get_row_bitset((x, y)) | \
-                                               sudoku.get_block_bitset((x, y))
-                        # The zeros are the values we are allowed to use, turn them to ones
-                        possible_digits = PossibleDigits(
-                            ~combined_used_values & 0b111111111  # Invert and mask to 9 bits
-                        )
-                        # If a cell has no option, this sudoku is not solvable
-                        if possible_digits.len == 0:
-                            return None
-                        elif possible_digits.len == 1:
-                            resolved_cell = True
-                            sudoku.update_value((x, y), possible_digits.get_single_digit())
-                        else:
-                            unresolved_cells.append(Cell((x, y), possible_digits))
+            for cell in sudoku.resolvablecells():
+                # If a cell has no option, this sudoku is not solvable
+                if cell.possible_digits.len == 0:
+                    return None
+                elif cell.possible_digits.len == 1:
+                    resolved_cell = True
+                    sudoku.update_value(cell.idx, cell.possible_digits.get_single_digit())
+                else:
+                    unresolved_cells.append(cell)
 
             if not resolved_cell:
                 break
@@ -234,7 +214,7 @@ class Solver:
     # resulting mutation is not necessarily the solution)
     @staticmethod
     def solve(sudoku: Sudoku, traversal_kind: Type[ExplorationTraversal] = DFS) -> Optional[Sudoku]:
-        # We push Tuple[Coords, int, Sudoku] to the exploration_traversal
+        # We push Tuple[idx, int, Sudoku] to the exploration_traversal
         # Keeping a deep copy of the sudoku is important since resolve_constrained_cells
         # mutates its state. It would be a lot harder to keep track of all values discovered through constraints
         # and reset all of them
@@ -245,8 +225,8 @@ class Solver:
         while exploration_traversal.has_more():
             exploration_tuple = exploration_traversal.next()
             if exploration_tuple != Solver.EXPLORATION_BOOTSTRAP:
-                coords, digit, sudoku = exploration_tuple
-                sudoku.update_value(coords, digit)
+                idx, digit, sudoku = exploration_tuple
+                sudoku.update_value(idx, digit)
 
             unresolved_cells = Solver.resolve_constrained_cells(sudoku)
             if unresolved_cells is None:
@@ -269,7 +249,7 @@ class Solver:
         candidate_cell = min(unresolved_cells, key=lambda cell: cell.possible_digits.len)
         for digit in candidate_cell.possible_digits.get_digits():
             # We keep track of the sudoku state at this step of the exploration
-            exploration_traversal.add((candidate_cell.coords, digit, copy.deepcopy(sudoku_before_exploration)))
+            exploration_traversal.add((candidate_cell.idx, digit, copy.deepcopy(sudoku_before_exploration)))
 
 
 def verify_solution_matches_problem(problem: List[List[int]], solution: Sudoku):
